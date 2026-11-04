@@ -1,0 +1,27 @@
+# Servicio de arranque directo al juego (P4). Se instala con scripts/install_service.sh
+[Unit]
+Description=Consola arcade (lectura de botones y potenciometros en LCD1602)
+# Solo necesita disco local: no espera red ni login, para cumplir arranque < 15 s
+After=local-fs.target
+
+[Service]
+Type=simple
+User=@USER@
+SupplementaryGroups=gpio i2c spi
+StateDirectory=arcade
+ExecStart=/opt/arcade/bin/arcade
+Restart=on-failure
+RestartSec=1
+# Exit 42 = el usuario pidio apagar (ambos botones 3 s): no reiniciar, apagar la Pi
+RestartPreventExitStatus=42
+ExecStopPost=+/opt/arcade/scripts/post_stop.sh
+# Permisos minimos para SCHED_FIFO y mlockall sin ser root
+AmbientCapabilities=CAP_SYS_NICE CAP_IPC_LOCK
+LimitMEMLOCK=infinity
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
