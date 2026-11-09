@@ -1,49 +1,53 @@
-# Consola arcade - Avance 2 (FSE, UNAM FI)
+# Consola arcade Versión 3.0 (entrega 3)
 
-Raspberry Pi 3 Model B. Probado con libgpiod **1.6** (Raspberry Pi OS Bookworm). Este avance lee **2 botones** (GPIO5, GPIO6) y **2 potenciometros** (MCP3008, canales 0 y 1)
-y los muestra en una **LCD1602 I2C**. Los juegos (Dino y Pong 2 jugadores) se conectan despues sin cambiar el hardware ni los hilos: ver `include/game.h`.
+Raspberry Pi 3 Model B Rev 1.2, Raspberry Pi OS 12 (bookworm), libgpiod 1.6.
+Un proceso: botones, MCP3008 y TFT ST7796S. Juegos: dino y pong.
 
-## Compilar y ejecutar
-```bash
-./scripts/install_deps.sh        # libgpiod 1.6 o 2.x, i2c-tools, habilita I2C y SPI
-./scripts/hw_check.sh            # LCD debe salir en 0x27 o 0x3F
-make                             # produce build/arcade
-make test                        # 30 pruebas de logica (no necesita hardware)
-./build/arcade                   # LCD en 0x27
-./build/arcade --lcd-addr 0x3F   # otra direccion
-./build/arcade --console         # ademas imprime la pantalla en la terminal
-./build/arcade --no-lcd          # solo consola (depuracion sin LCD)
-```
-Ctrl+C sale limpio y muestra la latencia de entrada medida. Mantener **ambos botones 3 s** apaga la Pi.
+## Qué hay
 
-## Arranque automatico
-```bash
-./scripts/install_service.sh && sudo reboot
-./scripts/measure_boot.sh        # requisito: < 15 s
-./scripts/boot_optimize.sh       # candidatos a deshabilitar; --apply los aplica
-```
-
-Guia completa de pruebas y fallas comunes: `docs/COMO_PROBAR.md`.
-
-## Estructura
-| Archivo | Funcion |
+| Ruta | Para qué |
 |---|---|
-| `include/config.h` | Todas las constantes (pines, periodos, direcciones, prioridades) |
-| `src/buttons.c` | libgpiod 1.6 o 2, eventos de flanco, debounce de 20 ms, mide latencia |
-| `src/mcp3008.c` | SPI (spidev), trama de 3 bytes de la P3 |
-| `src/lcd1602.c` | HD44780 4 bits por PCF8574; cache de filas; caracteres personalizados |
-| `src/filter.c` | Filtro de potenciometro y deteccion de combo (logica pura, probada) |
-| `src/storage.c` | Escritura atomica con fsync (archivo temporal + rename) |
-| `src/game*.c` | Interfaz de juegos + modo diagnostico |
-| `src/main.c` | Hilos, senales, pantalla con recuperacion |
+| [src/](src) | Firmware. El binario de la placa es `build/arcade`. |
+| [docs/CABLEADO.md](docs/CABLEADO.md) | Cómo conectar la ST7796S sin soltar el MCP3008. |
+| [docs/DECISIONES.md](docs/DECISIONES.md) | Cifras nuevas, bitácora y lo pendiente. |
+| [systemd/arcade.service](systemd/arcade.service) | Arranque solo, reinicio a 1 s, código 42 apaga. |
+| [scripts/](scripts) | Dependencias, revisión, instalación y parada. |
 
-## Decisiones de la bitacora aplicadas en el codigo
-- Una syscall por evento, hilo bloqueado en libgpiod, sin polling: `buttons.c`.
-- Debounce de 20 ms: en API 2 lo hace el kernel (`BUTTON_DEBOUNCE_US`); en Bookworm (API 1.6) el mismo tiempo lo confirma `buttons.c` leyendo el pin cuando lleva 20 ms estable.
-- Atomicos en vez de mutex para el estado compartido: `shared_state.h`.
-- Stack de 128 KB por hilo y cero `malloc` en el ciclo principal: `thread_start` en `util.c`.
-- SCHED_FIFO para entrada y ADC: `RT_PRIO_INPUT`, `RT_PRIO_ADC`.
-- Datos que sobreviven a un corte con `fsync`: `storage.c`.
-- Arranque directo al juego con systemd: `systemd/arcade.service`.
-- Apagado controlado: combo de botones -> exit 42 -> `post_stop.sh`.
+## En la Raspberry
 
+```sh
+sudo sh scripts/dependencias.sh
+sh scripts/revisar.sh
+make
+sudo sh scripts/instalar.sh
+sudo systemctl start arcade
+journalctl -u arcade -f
+```
+
+`revisar.sh` tiene que ver `/dev/spidev0.0` y `/dev/spidev0.1`. Con `dtparam=spi=on` (entrega 2) el kernel crea los dos. 
+
+## Controles
+
+Los dos botones a la vez, 3 s, apagan. 
+
+| Dónde | B1 (GPIO5) | B2 (GPIO6) | P1 (CH0) | P2 (CH1) |
+|---|---|---|---|---|
+| Menú | Siguiente | Entrar | — | — |
+| Dino | Salto / reinicio | Menú | — | — |
+| Pong | Sacar | Menú | Paleta izquierda | Paleta derecha |
+| Prueba | Se ve el nivel | Se ve el nivel. Los dos a la vez, un toque, vuelven al menú | Barra | Barra |
+
+60 s sin tocar nada apagan la luz de fondo (GPIO18). El siguiente toque la enciende.
+
+Arranques y récord quedan en `marcador`, dentro de esta carpeta. El servicio usa esta carpeta como directorio de trabajo. Para ponerlos en cero: `printf '0 0\n' > marcador` con el servicio parado.
+
+## Dos fallas para la demo
+
+1. `sudo kill -9 $(pidof arcade)`. `systemctl status arcade` muestra el reinicio al segundo. `marcador` conserva el récord y sube el arranque.
+2. `printf 'basura\n' > marcador` y `sudo systemctl restart arcade`. El archivo no se interpreta. El juego arranca igual y vuelve a escribir dos enteros. Un corte a mitad de esa escritura deja el archivo viejo o el nuevo: el `rename` va después del `fsync`.
+
+Desconectar el SPI casi nunca devuelve error en el `ioctl`.
+
+## Cifras
+
+La latencia y los fps salen en el journal al terminar el proceso (`scripts/medir_arranque.sh` dice dónde). 

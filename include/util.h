@@ -1,22 +1,26 @@
-#ifndef UTIL_H
-#define UTIL_H
+/* util.h - reloj, espera y creacion de hilos. los mensajes van a stderr
+ * para que journalctl -u arcade los guarde. */
+#ifndef util_h
+#define util_h
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-/* Los mensajes van a stderr: con systemd quedan en journalctl -u arcade */
-#define LOG_INFO(fmt, ...)  fprintf(stderr, "[arcade] " fmt "\n", ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)  fprintf(stderr, "[arcade][WARN] " fmt "\n", ##__VA_ARGS__)
-#define LOG_ERR(fmt, ...)   fprintf(stderr, "[arcade][ERR] %s:%d " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__)
-#define LOG_ERRNO(what)     LOG_ERR("%s: %s", (what), strerror(errno))
+#define log_info(fmt, ...) fprintf(stderr, "[arcade] " fmt "\n", ##__VA_ARGS__)
+#define log_aviso(fmt, ...) fprintf(stderr, "[arcade][aviso] " fmt "\n", ##__VA_ARGS__)
+#define log_error(fmt, ...) fprintf(stderr, "[arcade][error] %s:%d " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define log_errno(que) log_error("%s: %s", (que), strerror(errno))
 
-int64_t now_ns(void);                 /* CLOCK_MONOTONIC */
-int64_t now_ms(void);
-void sleep_ms(unsigned ms);
-void sleep_until_ns(int64_t deadline_ns); /* Periodo sin deriva: usa TIMER_ABSTIME */
-
-/* Crea un hilo con stack fijo; con prio > 0 intenta SCHED_FIFO y si no hay permiso cae a normal. */
-int thread_start(pthread_t *t, int rt_prio, void *(*fn)(void *), void *arg);
+/* clock_monotonic en nanosegundos. 0 solo si el reloj fallo (queda en el log). */
+int64_t ahora_ns(void);
+int64_t ahora_ms(void);
+/* si una senal corta el sueno, regresa. el llamador revisa salir. */
+void dormir_ms(unsigned ms);
+/* duerme hasta un instante absoluto. no acumula atraso si el plazo ya paso. */
+void dormir_hasta(int64_t plazo_ns);
+/* prio > 0 pide sched_fifo. sin permiso (a mano, sin el servicio) sigue en cfs y avisa.
+ * bitacora clase 8: la entrada tiene que poder adelantarse al dibujo. */
+int iniciar_hilo(pthread_t *hilo, int prio, void *(*fn)(void *), void *arg);
 #endif
