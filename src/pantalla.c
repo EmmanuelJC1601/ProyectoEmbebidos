@@ -33,9 +33,7 @@ enum {
 };
 
 static struct gpiod_chip *chip;
-static struct gpiod_line *dc;
-static struct gpiod_line *rst;
-static struct gpiod_line *luz;
+static struct gpiod_line_request *gpio;
 static int fd = -1;
 static int viva;
 static int nivel_luz = -1;
@@ -53,39 +51,85 @@ static const uint8_t gamma_negativa[] = {
 static const uint8_t ajuste[] = { 0x40, 0x8a, 0x00, 0x00, 0x29, 0x19, 0xa5, 0x33 };
 static const uint8_t funcion[] = { 0x80, 0x02, 0x3b };
 
-static int nivel(struct gpiod_line *linea, int valor)
+/* dc, reset y luz. el valor 1 es activo. la luz no es pwm: un overlay
+ * de pwm cambiaria el sistema, y el pin 18 solo enciende o apaga el led. */
+static int nivel(unsigned pin, int valor)
 {
-  if (!linea) {
+  enum gpiod_line_value v = valor ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE;
+  if (!gpio) {
     errno = ENODEV;
+    log_errno("gpio tft");
     return -1;
   }
-  if (gpiod_line_set_value(linea, valor) < 0) {
-    log_errno("gpiod_line_set_value");
+  if (gpiod_line_request_set_value(gpio, pin, v) < 0) {
+    log_errno("gpiod_line_request_set_value");
     return -1;
   }
   return 0;
 }
 
-static int pedir_salida(struct gpiod_line **out, unsigned pin, int valor)
+static int pedir_gpio(void)
 {
-  struct gpiod_line *linea = gpiod_chip_get_line(chip, pin);
-  if (!linea) {
-    log_errno("gpiod_chip_get_line tft");
-    return -1;
+  struct gpiod_line_settings *bajo = gpiod_line_settings_new();
+  struct gpiod_line_settings *alto = gpiod_line_settings_new();
+  struct gpiod_line_settings *luz_st = gpiod_line_settings_new();
+  struct gpiod_line_config *cfg = gpiod_line_config_new();
+  struct gpiod_request_config *req = gpiod_request_config_new();
+  unsigned p_dc = (unsigned)pin_dc;
+  unsigned p_rst = (unsigned)pin_rst;
+  unsigned p_luz = (unsigned)pin_luz;
+  int rc = -1;
+  if (!bajo || !alto || !luz_st || !cfg || !req) {
+    log_errno("gpiod tft");
+    goto fin;
   }
-  if (gpiod_line_request_output(linea, nombre_gpio, valor) < 0) {
-    log_errno("gpiod_line_request_output tft");
-    return -1;
+  if (gpiod_line_settings_set_direction(bajo, GPIOD_LINE_DIRECTION_OUTPUT) < 0 ||
+      gpiod_line_settings_set_output_value(bajo, GPIOD_LINE_VALUE_INACTIVE) < 0 ||
+      gpiod_line_settings_set_direction(alto, GPIOD_LINE_DIRECTION_OUTPUT) < 0 ||
+      gpiod_line_settings_set_output_value(alto, GPIOD_LINE_VALUE_ACTIVE) < 0 ||
+      gpiod_line_settings_set_direction(luz_st, GPIOD_LINE_DIRECTION_OUTPUT) < 0 ||
+      gpiod_line_settings_set_output_value(luz_st,
+          luz_encendida ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE) < 0) {
+    log_errno("ajuste tft");
+    goto fin;
   }
-  *out = linea;
-  return 0;
+  if (gpiod_line_config_add_line_settings(cfg, &p_dc, 1, bajo) < 0 ||
+      gpiod_line_config_add_line_settings(cfg, &p_rst, 1, alto) < 0 ||
+      gpiod_line_config_add_line_settings(cfg, &p_luz, 1, luz_st) < 0) {
+    log_errno("lineas tft");
+    goto fin;
+  }
+  chip = gpiod_chip_open(ruta_gpio);
+  if (!chip) {
+    log_errno("gpiod tft");
+    goto fin;
+  }
+  gpiod_request_config_set_consumer(req, nombre_gpio);
+  gpio = gpiod_chip_request_lines(chip, req, cfg);
+  if (!gpio) {
+    log_errno("request tft");
+    goto fin;
+  }
+  rc = 0;
+fin:
+  if (bajo)
+    gpiod_line_settings_free(bajo);
+  if (alto)
+    gpiod_line_settings_free(alto);
+  if (luz_st)
+    gpiod_line_settings_free(luz_st);
+  if (cfg)
+    gpiod_line_config_free(cfg);
+  if (req)
+    gpiod_request_config_free(req);
+  return rc;
 }
 
 static int poner_dc(int valor)
 {
   if (dc_ahora == valor)
     return 0;
-  if (nivel(dc, valor) != 0)
+  if (nivel((unsigned)pin_dc, valor) != 0)
     return -1;
   dc_ahora = valor;
   return 0;
@@ -262,17 +306,9 @@ falla:
 
 static void soltar_gpio(void)
 {
-  if (dc) {
-    gpiod_line_release(dc);
-    dc = NULL;
-  }
-  if (rst) {
-    gpiod_line_release(rst);
-    rst = NULL;
-  }
-  if (luz) {
-    gpiod_line_release(luz);
-    luz = NULL;
+  if (gpio) {
+    gpiod_line_request_release(gpio);
+    gpio = NULL;
   }
   dc_ahora = -1;
   if (chip) {
@@ -287,14 +323,7 @@ int pantalla_abrir(void)
   if (viva)
     return 0;
   if (fd < 0) {
-    chip = gpiod_chip_open(ruta_gpio);
-    if (!chip) {
-      log_errno("gpiod tft");
-      return -1;
-    }
-    if (pedir_salida(&dc, (unsigned)pin_dc, 0) != 0 ||
-        pedir_salida(&rst, (unsigned)pin_rst, 1) != 0 ||
-        pedir_salida(&luz, (unsigned)pin_luz, luz_encendida) != 0) {
+    if (pedir_gpio() != 0) {
       soltar_gpio();
       return -1;
     }
@@ -311,10 +340,10 @@ int pantalla_abrir(void)
       return -1;
     }
   }
-  if (nivel(rst, 0) != 0)
+  if (nivel((unsigned)pin_rst, 0) != 0)
     return -1;
   dormir_ms((unsigned)ms_reset);
-  if (nivel(rst, 1) != 0)
+  if (nivel((unsigned)pin_rst, 1) != 0)
     return -1;
   dormir_ms((unsigned)ms_panel);
   if (secuencia() != 0) {
@@ -362,9 +391,9 @@ int pantalla_volcar(void)
 void pantalla_luz(int encendida)
 {
   int valor = encendida ? luz_encendida : 1 - luz_encendida;
-  if (!luz || valor == nivel_luz)
+  if (!gpio || valor == nivel_luz)
     return;
-  if (nivel(luz, valor) == 0)
+  if (nivel((unsigned)pin_luz, valor) == 0)
     nivel_luz = valor;
 }
 
