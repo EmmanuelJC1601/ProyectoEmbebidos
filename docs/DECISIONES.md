@@ -1,99 +1,114 @@
-# Decisiones
+# Decisiones de la entrega 3
 
-Consola en una Raspberry Pi 3 Model B Rev 1.2 con Raspberry Pi OS Lite de 64 bits, Debian 13 (Trixie) y libgpiod 2. Un proceso lee dos botones y dos potenciómetros, dibuja en una TFT ST7796S y arranca solo con systemd.
+Lo planeado en las entregas 1 y 2 se construyó, menos lo que esta entrega no puede tocar: el sistema ya instalado en la tarjeta. Cada diferencia queda con la causa y la cifra nueva. Los números de diseño viven en [include/constantes.h](../include/constantes.h). No hay constantes sueltas en el juego.
 
-Las constantes con nombre están en [include/constantes.h](../include/constantes.h). 
+Estas cifras de tiempo y de consumo **no se midieron en la placa desde esta máquina**. La latencia y los fps los imprime el proceso (`journalctl -u arcade`). El vatio lo mide un medidor USB. Abajo se distingue presupuesto de diseño y medición pendiente.
 
-La latencia, los cuadros, la CPU, la memoria y el arranque se midieron en la Pi. 
+## Qué cambió y por qué
 
-## Mediciones
-
-| Requisito | Criterio | Resultado |
-|---|---|---|
-| Entrada | Menos de 50 ms | 20.0 ms la última, 20.1 ms la máxima. Incluye los 20 ms de antirrebote. |
-| Cuadros | 30 fps o más | 31 fps con el dinosaurio en marcha. Peor trabajo del segundo: 16.5 ms. |
-| Arranque | Menos de 15 s hasta el menú | 16.6 s hasta que `arcade.service` queda activo (núcleo 5.682 s, servicio a los 10.952 s de espacio de usuario). El arranque completo del sistema fue 20.5 s. |
-| Consumo | 15 W o menos | No medido. Presupuesto de diseño: 2.76 W a 5 V. |
-| CPU y memoria | Sin tope numérico en el diseño | Con el menú en pantalla: 1.5 % de CPU, 2840 KB el proceso, 134 Mi de 905 Mi en la Pi. |
-
-La latencia y los fps los imprime el proceso al salir. Se leen con `journalctl -u arcade -n 40 --no-pager` después de `systemctl stop arcade`. El arranque lo imprime `scripts/medir_arranque.sh`.
-
-## Qué cambió respecto al diseño inicial
-
-| Tema | Diseño inicial | Sistema actual | Causa |
+| Tema | Entrega 1 o 2 | Ahora | Por qué |
 |---|---|---|---|
-| Placa | Primero una Pi 4 (BCM2711); después la Pi 3. | Pi 3 Model B Rev 1.2, BCM2837. | Es la placa del prototipo. |
-| Pantalla | LCD1602 con PCF8574, I2C `0x27`, 16 columnas, refresco de 50 ms. | ST7796S en SPI0 CE1, 480×320, RGB565, paso de 33 ms. | 16×2 no alcanza para los dos juegos. |
-| Video | SPI o HDMI, con un framebuffer estimado en 1.5 MB. | Dibujo en espacio de usuario sobre `/dev/spidev0.1`. Framebuffer estático de 300 KiB. | Un overlay de framebuffer modifica el sistema. 480×320×2 = 307200 bytes. |
-| Bus | SPI solo para el conversor. I2C para la LCD. | SPI0 compartido. CE0: MCP3008 a 1 MHz. CE1: TFT a 32 MHz. Mutex con herencia de prioridad. | Hay un solo controlador y dos relojes. Entre bloques de 4 KiB se suelta el mutex para que una muestra no espere el cuadro. |
-| Cuadro completo | 30 fps por SPI o HDMI, sin presupuesto de bytes. | Un cuadro entero a 32 MHz son unos 77 ms de bits, cerca de 13 fps. No se manda. | Se mandan zonas, con tope de 96. El dinosaurio medido quedó en 32374 bytes. |
-| Tamaño de transferencia | No estaba definido. | Bloques de 4096 bytes. | Es el `spidev.bufsiz` de fábrica. Subirlo sería un parámetro del núcleo. |
-| Audio | Hilo PWM en GPIO18, tono de 1 kHz. | No hay hilo de audio. GPIO18 es la luz, en nivel alto. | El hardware no tiene audio. Un overlay de PWM escribe el sistema. |
-| Tareas | Cuatro hilos, pila de 128 KiB cada uno. | Un proceso, tres hilos. Pila de 128 KiB solo en los dos de tiempo real. | Se eliminó el audio. El dibujo se quedó en el hilo principal: las coordenadas las escribe solo ese hilo. |
-| Estado compartido | Mutex sobre el botón y las coordenadas. | Atómicos de un solo escritor. Las coordenadas no salen del hilo principal. | El juego lee un botón sin tomar un mutex. Una coordenada con un solo escritor no es un recurso compartido. |
-| Antirrebote | 20 ms en el programa. | Igual. libgpiod 2 no lo filtra. | El nivel se publica cuando el pin lleva 20 ms quieto y una lectura lo confirma. Por eso la latencia medida sale en 20 ms. |
-| Conversor | 1 MHz, modo 0, tres bytes, muestra cada 10 ms, banda de ±2 y paso de 1/4. | Mediana de cinco muestras, banda de ±16, y después el mismo paso. | La banda de ±2 dejaba pasar el ruido del cable y la paleta se movía sola. La muestra sigue cada 10 ms. |
-| Datos persistentes | Récord, volumen y dificultad. Raíz de solo lectura y partición `/data`. Pérdida de 0 s. | Arranques y récord del dinosaurio, en `marcador`, dentro del directorio de trabajo del servicio. | Volumen y dificultad eran de otra tarea. Reparticionar la tarjeta del prototipo no aporta al juego y pone en riesgo la demostración. |
-| Escritura | `fsync` y `rename`. | Temporal, `fsync` del archivo, `rename`, `fsync` del directorio. | Sin el último, el nombre nuevo puede quedarse solo en caché. |
-| Apagado | Los dos botones durante 3 s, salida 42, `poweroff`. | Igual. A los 60 s sin entrada se apaga solo la luz. | No hay PWM para atenuar. Bajar el GPIO sí se puede. |
-| Arranque | Imagen mínima, menos de 15 s, sin red ni escritorio. | Raspberry Pi OS Lite, sin escritorio. `scripts/aligerar_arranque.sh` quita servicios que el juego no usa. El servicio arranca en `multi-user.target`, después de `local-fs.target`, sin esperar la red. | No se construyó una imagen con Buildroot. En Trixie, `netplan generate` se quedaba unos 30 s esperando un reload de NetworkManager; el script evita esa llamada. Aun así el menú sale a los 16.6 s. |
-| Consumo | Presupuesto, sin medición, tope 15 W. | Sigue sin medición. Presupuesto: 2.76 W. | Pi 3 en este proceso, 2.00 W. TFT con luz, 0.75 W. MCP3008, dos potenciómetros de 10 kΩ y dos botones, unos 0.01 W entre los tres. |
-| Memoria | Reserva al arrancar, sin `malloc` durante la partida. Framebuffer de 1.5 MB, ocho obstáculos, pila de 128 KiB por cuatro hilos. | Framebuffer de 300 KiB, fuente en el binario, ocho obstáculos, bloque SPI de 4 KiB, 96 zonas. `mlockall` solo si el servicio dio `CAP_IPC_LOCK`. | Misma idea, menos reserva: no hay audio y el color es RGB565. Medido: 2840 KB. |
-| Paso del juego | 50 ms, el de la LCD. | 33 ms fijos (`ms_cuadro`). La física no usa un dt variable. | 1000/33 queda en 30 cuadros. Un dt variable haría que un cuadro largo atraviese la paleta. |
-| Reintento | 2000 ms si la escritura a la LCD falla. | Igual para la TFT. Veinte fallos seguidos del conversor o de los botones: el proceso sale con 1 y systemd lo levanta al segundo. Una TFT que no abre no mata el proceso. | Un panel que tarda en encender no debe tumbar la entrada. |
+| Placa | Entrega 1: Pi 4, BCM2711. Entrega 2: Pi 3. | Pi 3 Model B Rev 1.2, BCM2837. | La placa real es la de la entrega 2. El PWM del buzzer se había escrito para el BCM2711. |
+| Pantalla | LCD1602 + PCF8574, I2C `0x27`, texto de 16 columnas, refresco 50 ms. | ST7796S, SPI0 CE1, paisaje 480×320, RGB565, paso de 33 ms. | El módulo TFT reemplaza a la LCD. 16×2 no dibuja pong ni dino. |
+| Driver de video | SPI o HDMI, y en la entrega 1 un framebuffer de 1.5 MB. | Driver de usuario sobre `/dev/spidev0.1`. Framebuffer estático de 300 KiB. | Un overlay `fbtft` o un `dtoverlay` escribe el sistema. 480×320×2 = 307200 bytes = 300 KiB. |
+| Bus | SPI solo para el ADC. I2C para la LCD. | SPI0 compartido: CE0 el ADC a 1 MHz, CE1 la TFT a 32 MHz pedidos. Mutex con herencia de prioridad. | Un solo controlador. El mutex está en el código porque la bitácora pide ver la sección crítica; el kernel también serializa el controlador. |
+| Cuadro completo | ≥ 30 FPS por SPI o HDMI, sin cifra de bytes. | Un cuadro completo son 307200 bytes. A 32 MHz son ~77 ms de bits, unos 13 FPS. Por eso no se manda el cuadro entero. | Las zonas sucias caben en el paso de 33 ms. El tope de zonas es 96. Las pruebas piden que dino mande menos de 120000 bytes y pong menos de 40000. |
+| Tope de transferencia | No estaba. | Bloques de 4096 bytes. | `spidev.bufsiz` de fábrica es 4096. Subirlo sería un parámetro del kernel. Entre bloque y bloque se suelta el mutex para que el ADC no espere el cuadro. |
+| Audio | Hilo PWM, GPIO18 ALT5, beep de 1 kHz. | No hay hilo de audio. GPIO18 es la luz de la TFT, en GPIO, activo en alto. | No hay buzzer en el hardware de esta entrega. El overlay de PWM cambia el sistema. |
+| Tareas | 4 hilos, pila 128 KiB × 4. | 1 proceso, 3 tareas. Pila de 128 KiB solo en los dos hilos de tiempo real. El principal no fija la pila. | Se quitó el audio. El dibujo se queda en el hilo principal: un hilo de render aparte volvería a compartir las coordenadas. |
+| Estado compartido | Mutex o atómico sobre el botón y las coordenadas del personaje. | Atómicos de un solo escritor: nivel, pulsos, potenciómetros, récord, banderas. Las coordenadas son estáticas del hilo principal. | El hilo del juego no espera un mutex para leer un botón. Una coordenada que solo escribe un hilo no es recurso compartido. |
+| Debounce | 20 ms en software. libgpiod 2 no filtra en el kernel. | Igual. La latencia publicada incluye esos 20 ms y el requisito sigue siendo < 50 ms. | No hay API de debounce en esta versión. El pin tiene que quedarse quieto 20 ms y una lectura lo confirma. |
+| ADC | 1 MHz, modo 0, trama de 3 bytes, muestra cada 10 ms, filtro ±2 y paso 1/4. | Mediana de 5 muestras y banda ±16, luego el mismo paso de 1/4. | El ±2 de la entrega 2 dejaba pasar el ruido del cable: la paleta se movía sin tocar el pote. Un pico de una muestra ya no entra. La muestra sigue siendo cada 10 ms. |
+| Datos que sobreviven | Récord, volumen y dificultad. Partición `/` de solo lectura y `/data` aparte. Pérdida 0 s de récord. | Solo arranques y récord del dino, archivo `marcador` en la carpeta del proyecto. El servicio tiene esa carpeta como directorio de trabajo. | Volumen y dificultad eran del buzzer y no hay perilla de eso. Otra partición o root de solo lectura reformatea o remonta la tarjeta que ya usan. |
+| Escritura | `fsync` + `rename`. | Temporal, `fsync` del archivo, `rename`, `fsync` del directorio. | Sin el `fsync` del directorio el nombre nuevo puede quedar solo en caché. Un corte deja el archivo viejo o el nuevo entero. |
+| Apagado | Dos botones 3 s, salida 42, `poweroff`. | Igual. Además, 60 s sin entrada apagan solo la luz. | El estado de inactividad de la bitácora no puede atenuar por PWM. Apagar el GPIO sí. |
+| Arranque ≤ 15 s | Imagen mínima, sin red ni escritorio. | No se afirma. Sigue Raspberry Pi OS 12. El servicio arranca en `multi-user.target`, después de `local-fs.target`, sin esperar red. | Esta entrega pidió no cambiar el sistema. `scripts/medir_arranque.sh` imprime lo que `systemd-analyze` diga en la Pi; esa cifra es la real, no 15 s. |
+| Consumo ≤ 15 W | Presupuesto, sin medición. | Sigue el presupuesto, no una medición. Pi 3 con este proceso (sin ethernet a plena carga ni GPU) más la luz del panel (décimas de vatio) y el MCP3008 (microamperios) queda debajo de 15 W. Los dos potenciómetros de 10 kΩ a 3.3 V son ~0.7 mA. | Hay que medirlo con un medidor USB para el PDF. El código no inventa el vatio. |
+| Memoria (caso B) | Reserva al arrancar, 0 malloc en partida. FB 1.5 MB, sprites ≤ 0.5 MB, 8 obstáculos, pila 128 KiB × 4. | FB 300 KiB estático, fuente 5×7 dentro del binario (0 archivos de imagen), 8 obstáculos, bloque SPI 4 KiB, 96 zonas (1536 bytes), pila 128 KiB × 2. `mlockall` solo si el servicio dio `CAP_IPC_LOCK`. | Misma estrategia, menos reserva: no hay audio y el panel es RGB565, no un buffer de 1.5 MB. |
+| Paso de juego | En la LCD, 50 ms. | 33 ms fijos (`ms_cuadro`). La física no usa dt variable. | 1000/33 ≈ 30 cuadros. Un dt variable con un cuadro largo haría que la pelota atravesara la paleta. |
+| Reintento | LCD: 2000 ms si el write falla. | Igual para la TFT. 20 fallos seguidos del ADC o de los botones: el proceso sale 1 y systemd lo levanta a 1 s. La TFT caída no mata el proceso: se reabre cada 2 s. | Un panel que tarda en arrancar no debe tumbar los botones. |
+| Simulación y lector de potes | No estaba. | No van en el árbol final. La pantalla PRUEBA del menú sí. | El zip de la placa solo trae el juego. Si algo falla, se mira en la Pi. |
 
-## Planificación
+## Bitácora: clases 8, 9 y 11
 
-La entrada es preemptiva. Si el volcado del SPI no se puede interrumpir, un cuadro largo se come los 50 ms.
+### Clase 8. Tareas y prioridades
 
-| Hilo | Prioridad | Qué hace |
-|---|---|---|
-| Botones | `SCHED_FIFO` 50 | Se bloquea en el flanco del GPIO. El núcleo lo despierta. Antirrebote de 20 ms. El combo de 3 s para apagar vive aquí, para que un cuadro largo no retrase el `poweroff`. |
-| Conversor | `SCHED_FIFO` 40 | Periodo absoluto de 10 ms. Publica la posición ya filtrada. |
-| Juego y dibujo | Planificador normal | Paso de 33 ms. Las coordenadas no se comparten con otro hilo. |
+Sigue habiendo planificación preemptiva en la entrada. Si no, un volcado SPI se come los 50 ms. Lo que cambió es que ya no hay cuarta tarea.
 
+| Tarea | Prioridad | Dónde | Diferencia |
+|---|---|---|---|
+| Botones. Se bloquea en `gpiod_line_event_wait_bulk`. El kernel despierta con el flanco. Debounce 20 ms. Combo de 3 s en este hilo. | `SCHED_FIFO` 50 | [src/hw.c](../src/hw.c) `tarea_botones` (línea 24), [src/botones.c](../src/botones.c) espera (línea 106) y debounce (línea 20), [src/util.c](../src/util.c) `iniciar_hilo` (línea 41), [include/constantes.h](../include/constantes.h) `prio_botones` (línea 71) | Igual que lo planeado. |
+| ADC. Periodo absoluto de 10 ms. Publica el potenciómetro ya filtrado. | `SCHED_FIFO` 40 | [src/hw.c](../src/hw.c) `tarea_adc` (línea 55), [include/constantes.h](../include/constantes.h) `ms_adc` (línea 40) | Igual. |
+| Juego y dibujo. Paso de 33 ms. CFS, prioridad normal. | Normal | [src/principal.c](../src/principal.c) bucle (línea 153) y comentario de cabecera (líneas 1-5) | La entrega 1 separaba lógica y render. Van en el mismo hilo porque las coordenadas no se comparten. |
+| Audio PWM | Baja | — | Eliminada. No hay buzzer y GPIO18 es la luz. Causa en la tabla de arriba. |
 
-## Sincronización
+Sin `CAP_SYS_NICE` (correr el binario a mano) el hilo se crea igual en CFS y queda el aviso en stderr. El servicio sí tiene la capability.
 
-Cada dato compartido tiene un escritor. Los botones, los pulsos y la latencia los escribe el hilo de entrada. Los potenciómetros, el del conversor. El récord, los arranques y el pedido de apagado, el hilo principal. `salir` y `fallo` también los pueden poner los hilos de entrada al pasar de `errores_tope`. Están declarados como `atomic_*` en [include/estado.h](../include/estado.h). El juego lee un botón sin esperar.
+### Clase 9. Recurso compartido y sincronización
 
-Las coordenadas del dinosaurio y de la pelota no salen de su archivo.
+Lo planeado mezclaba el botón y las coordenadas en un mutex. Construido:
 
-El recurso que sí usan dos hilos es el bus SPI. El mutex es POSIX, con `PTHREAD_PRIO_INHERIT`. Si el juego tiene el bus y el conversor lo pide, el juego hereda la prioridad 40 y suelta. La creación está en [src/spi.c](../src/spi.c). Se suelta entre bloques de 4 KiB en [src/pantalla.c](../src/pantalla.c). 
+- Cada dato compartido tiene un escritor. Botones, pulsos y latencia: el hilo de entrada. Potenciómetros: el hilo del ADC. Récord, arranques, salir, apagar, fallo: el hilo principal, salvo `salir` y `fallo`, que también los ponen los hilos de entrada si se pasan de `errores_tope`. Esos son `atomic_*`. Declarados en [include/estado.h](../include/estado.h) líneas 1-26.
+- Las coordenadas del dino y de la pelota no salen de su archivo. No hay mutex del personaje.
+- El recurso que sí es de dos hilos es el bus SPI. Mutex POSIX con `PTHREAD_PRIO_INHERIT`: si el juego (CFS) tiene el bus y el ADC (FIFO 40) lo pide, el juego hereda y suelta antes. [include/spi.h](../include/spi.h) líneas 1-7, [src/spi.c](../src/spi.c) `spi_iniciar` línea 17. Se suelta entre bloques de 4 KiB en [src/pantalla.c](../src/pantalla.c) `mandar_rect` línea 131.
 
-## Procesos
-Un proceso, tres hilos, la misma memoria. systemd lo arranca, lo reinicia si sale mal y apaga la Pi si el código de salida es 42. 
+### Clase 11. IPC
 
-## `volatile`
+No hay dos procesos del juego. Un proceso, tres hilos, memoria común. Cabecera de [src/principal.c](../src/principal.c) líneas 1-5. systemd no es IPC del juego: es quien lo arranca, lo reinicia si sale mal y apaga la máquina si sale 42.
 
-El único `volatile` del árbol es `senal_parar`, de tipo `sig_atomic_t`, en [src/principal.c](../src/principal.c). Lo escribe el manejador de `SIGINT` y `SIGTERM`. Lo lee el bucle. `volatile` no hace atómica una escritura ni ordena dos núcleos: el estado compartido es `atomic_*`. No hay `mmap` de registros, así que no hay `volatile` de periférico.
+## Clase 20. volatile
 
-## Controladores
+El único `volatile` del árbol es `static volatile sig_atomic_t senal_parar` en [src/principal.c](../src/principal.c) línea 23. Lo escribe el manejador de `SIGINT`/`SIGTERM` y lo lee el bucle. `volatile` no hace atómica una escritura de juego ni ordena dos núcleos: por eso el estado compartido es `atomic_*` y no `volatile`. No hay `mmap` de registros, así que no hay `volatile` de periférico.
 
-| Pieza | Quién genera el tiempo | Qué abre el programa |
-|---|---|---|
-| Botones, GPIO5 y GPIO6 | El flanco del GPIO. Nodo `/dev/gpiochip0`, libgpiod 2. | Una espera por flanco. No es un bucle preguntando el pin. |
-| MCP3008 | El reloj SPI, 1 MHz, modo 0. Driver `spi-bcm2835`. No hay driver del chip. | `/dev/spidev0.0`. Un `ioctl` por canal. |
-| TFT ST7796S | El mismo controlador, otro chip select, 32 MHz pedidos. No se carga `fbtft`. | `/dev/spidev0.1`. DC en GPIO25, reset en GPIO27, luz en GPIO18. |
-| Luz | No es PWM. Es un nivel. | GPIO18, salida, activo en alto. |
+Evidencia, en la raíz del repo:
 
-`sh scripts/revisar.sh` tiene que mostrar `/dev/gpiochip0`, `/dev/spidev0.0`, `/dev/spidev0.1` y libgpiod 2.x. 
+```sh
+grep -n volatile src/*.c include/*.h
+```
 
-## Persistencia y fallas
+Tiene que salir solo esa declaración y los comentarios que la explican (líneas 6-9 del mismo archivo).
 
-`marcador` guarda dos enteros: arranques y récord del dinosaurio. El récord se escribe cuando la partida termina y supera al anterior. La escritura va a un temporal, hace `fsync`, renombra y sincroniza el directorio. Está en [src/archivo.c](../src/archivo.c).
+## Clase 21. Driver de cada sensor y actuador
 
-Eso fija qué sobrevive a un corte de corriente. Si el dinosaurio sigue vivo, los puntos de esa partida están en RAM y se pierden. Si la escritura ya terminó, el récord queda. Si el corte cae a mitad, el archivo anterior sigue siendo el válido, porque el nuevo no lo reemplaza hasta el `rename`.
+Ninguno se programa por `mmap`. La temporización que el proceso no puede sostener la hace el periférico a través de su driver de kernel, y el proceso hace una syscall por evento o por muestra.
 
-Dos fallas provocadas a propósito:
+| Pieza | Quién genera el tiempo | Qué abre el programa | Evidencia en código |
+|---|---|---|---|
+| Botones GPIO5 y GPIO6 | Interrupción del GPIO. Driver `pinctrl-bcm2835`, nodo `/dev/gpiochip0`. libgpiod 2. | Una syscall por flanco: `gpiod_line_request_wait_edge_events`. | [include/botones.h](../include/botones.h) líneas 1-8 |
+| MCP3008 | Reloj SPI del hardware, 1 MHz, modo 0. Driver `spi-bcm2835`. No hay driver del chip. | `/dev/spidev0.0`. Un `ioctl` por canal. Canal ≥ 8 devuelve `EINVAL` sin `ioctl`. | [include/adc.h](../include/adc.h) líneas 1-5, [src/adc.c](../src/adc.c) `adc_abrir` línea 10 |
+| TFT ST7796S | Reloj SPI del mismo controlador, otro chip select, 32 MHz pedidos. No se carga `fbtft`. | `/dev/spidev0.1`. DC, RST y luz por libgpiod. | [include/pantalla.h](../include/pantalla.h) líneas 1-5, [src/pantalla.c](../src/pantalla.c) `pantalla_abrir` línea 278 |
+| Luz de fondo | No es PWM. Es un nivel GPIO. | GPIO18, salida. | [include/constantes.h](../include/constantes.h) `pin_luz` línea 57 |
+| Buzzer | No existe en este hardware. | — | La tarea de la entrega 1 no se compiló. |
 
-1. **Proceso muerto.** `kill -9` no pasa por el `fsync`. systemd ve la señal, `Restart=on-failure` y `RestartSec=1s`. 
-2. **Archivo dañado.** Con el servicio parado se escribió `basura` en `marcador`. El programa no interpreta esa línea, abre igual y la siguiente escritura deja otra vez dos enteros. El récord de esa copia se pierde.
+En la Pi, `sh scripts/revisar.sh` imprime los nodos y la versión de libgpiod. Eso es la evidencia de terminal: tienen que aparecer `/dev/gpiochip0`, `/dev/spidev0.0` y `/dev/spidev0.1`, y libgpiod 2.x. El listado de la entrega 2 solo mencionaba `spidev0.0` porque la LCD iba por I2C. Con `dtparam=spi=on` el segundo nodo ya debería estar; si no está, la TFT no tiene chip select y no se arregla desde este programa sin tocar el dispositivo.
 
-## Límites
+## Robustez (dos fallas)
 
-- El menú no aparece en menos de 15 s. Medido: 16.6 s hasta el servicio, 20.5 s el sistema completo. Bajar de eso implica otra imagen.
-- El consumo no está medido. 2.76 W es la suma de las hojas de datos y del consumo típico de la Pi 3 con un solo proceso, no una lectura de la fuente.
-- No hay partición de datos ni raíz de solo lectura. Un archivo dañado pierde el récord de esa copia.
-- No hay imagen de Buildroot ni de Yocto. Para el prototipo pesaba poder instalar, medir y corregir. 
+1. **Proceso muerto.** `kill -9` no pasa por el `fsync`. systemd ve muerte por señal, `Restart=on-failure`, `RestartSec=1s`. Al volver a abrir, el arranque suma 1 y el récord se lee del archivo que ya estaba en disco. Código: [systemd/arcade.service](../systemd/arcade.service), carga en [src/principal.c](../src/principal.c) `cargar` línea 47.
+2. **Archivo dañado o directorio sin escritura.** `datos` con texto que no son dos enteros se rechaza ([src/archivo.c](../src/archivo.c) `cargar_datos`). El juego sigue con récord 0. Si el `open` del temporal falla, no hay `rename` y el archivo anterior no se toca. Un corte durante el `write` borra el temporal en el siguiente arranque; el nombre definitivo solo cambia después del `fsync`.
 
+La TFT que no abre no es una de esas dos: el proceso sigue y `hw_recuperar` reintenta cada 2 s ([src/hw.c](../src/hw.c) línea 172). Desenchufar el SPI a menudo no hace fallar el `ioctl`, porque el controlador no recibe acuse. No lo presentes como falla recuperada.
+
+## Medición contra la entrega 1
+
+El requisito que el propio programa compara es el de tiempo:
+
+- Entrada: latencia del flanco del kernel hasta el nivel publicado, tope `us_latencia_max` = 50000. Incluye los 20000 µs de debounce. Al salir imprime última, máxima y si cabe. [src/botones.c](../src/botones.c) `anotar` línea 9, [src/principal.c](../src/principal.c) `resumen` línea 70.
+- Cuadro: fps del último segundo contra `fps_minimo` = 30, y el peor cuadro en microsegundos. Si la corrida dura menos de 1 s, fps queda 0: eso no es un aprobado.
+
+La lógica de trama, filtro, combo de 3 s, archivo y zonas se probó antes de armar este árbol. El zip de la placa ya no trae ese programa de pruebas ni el lector de potenciómetros. La pantalla PRUEBA del menú sigue.
+
+El arranque de 15 s y los 15 W quedan para medirlos en la Pi. No los rellenes con el número del presupuesto.
+
+## Pendiente para el avance 4
+
+- PDF de esta entrega con la medición real (journal de latencia o fps, y si alcanzan, el vatio) y las dos fallas de arriba, hechas en vivo.
+- Confirmar en la Pi `/dev/spidev0.1`. Si la imagen sale espejada, una constante (`madctl_paisaje` o `invertir_color`), no un overlay.
+- Si el fps medido en el panel baja de 30, el primer cambio es `hz_tft` (probar 48000000). Un cuadro sucio grande se acerca al presupuesto de 33 ms a 32 MHz.
+- Arranque < 15 s y la partición `/data` con root de solo lectura. Causa de no haberlos hecho: esta entrega no debía cambiar el sistema. Siguen siendo trabajo de imagen, no de este proceso.
+- Commits de cada integrante en el repositorio. Este árbol no los inventa.
+- Buildroot queda como idea de producto de la entrega 2. No es el sistema de la demo.
+
+## Uso de IA
+
+Borrador para la declaración del PDF, editable por el equipo: se usó un asistente para reconstruir el firmware de la entrega 3 (TFT ST7796S, juegos, servicio y esta bitácora) a partir de las entregas 1 y 2 y del código del módulo de botones, ADC y LCD. Las cifras de la placa (latencia, fps, arranque, consumo) no las produjo el asistente: hay que medirlas en la Raspberry.
