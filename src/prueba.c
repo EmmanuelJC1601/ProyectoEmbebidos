@@ -11,10 +11,6 @@ static int pot_v1 = -1;
 static int pot_v2 = -1;
 static char visto_txt[7][40];
 
-/* muestra perillas, botones, latencia y fps.
- * b1 y b2 se quedan en pantalla: si b2 volviera al menu no se podria ver.
- * volver es un toque de los dos a la vez. los 3 s siguen apagando.
- * solo repinta la linea que cambio: si no, la propia pantalla tira el fps. */
 static void prueba_iniciar(estado_t *e)
 {
   (void)e;
@@ -30,7 +26,6 @@ static void prueba_iniciar(estado_t *e)
 static void prueba_actualizar(estado_t *e)
 {
   int ambos = atomic_load(&e->nivel[idx_b1]) && atomic_load(&e->nivel[idx_b2]);
-  /* el primer vistazo no cuenta: pueden seguir presionados del menu. */
   if (!ambos_listo) {
     ambos_listo = 1;
     ambos_abajo = ambos;

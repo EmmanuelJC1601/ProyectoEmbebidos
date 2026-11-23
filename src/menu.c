@@ -7,8 +7,6 @@ static int listo1, listo2;
 static unsigned idx;
 static int repintar;
 
-/* b1 recorre, b2 entra. si los dos estan presionados no se navega:
- * ese gesto es el apagado de 3 s y no debe cambiar de juego a medias. */
 static void menu_iniciar(estado_t *e)
 {
   (void)e;

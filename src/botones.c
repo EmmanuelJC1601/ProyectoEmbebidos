@@ -6,8 +6,6 @@
 
 static const unsigned pines[n_botones] = { pin_boton1, pin_boton2 };
 
-/* guarda cuantos us pasaron del flanco del kernel al nivel publicado.
- * el reloj es el mismo (monotonic), asi que no se mezclan fuentes. */
 static void anotar(estado_t *e, int64_t flanco_ns)
 {
   int64_t dt = ahora_ns() - flanco_ns;
@@ -46,8 +44,6 @@ static int confirmar(botones_t *b, estado_t *e, unsigned i)
   return 0;
 }
 
-/* pide los dos pines. si el kernel no acepta el pull, se reintenta sin el:
- * el circuito ya trae 10k a gnd. */
 static int pedir_lineas(botones_t *b, int con_pull)
 {
   struct gpiod_line_settings *ajuste = gpiod_line_settings_new();
@@ -134,8 +130,7 @@ int botones_abrir(botones_t *b, estado_t *e)
   return 0;
 }
 
-/* espera el proximo flanco o el fin de la ventana de 20 ms.
- * cada flanco nuevo reinicia esa ventana: el pin tiene que quedarse quieto. */
+// espera el proximo flanco o el fin de la ventana de 20 ms.
 int botones_esperar(botones_t *b, estado_t *e)
 {
   int64_t tope = (int64_t)ms_espera_boton * ns_por_ms;
