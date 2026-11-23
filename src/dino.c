@@ -19,7 +19,16 @@ enum {
   n_nubes = 2,
   vel_nube = 2,
   pata_cada = 4,
-  cactus_w = 18
+  cactus_w = 18,
+  /* la caja es mas chica que el dibujo, como en el dino de chrome:
+   * la cola, la cabeza y las patas no matan, y el cactus solo cuenta el tronco. */
+  caja_x = 14,
+  caja_y = 14,
+  caja_w = 16,
+  caja_h = 20,
+  tronco_x = 6,
+  tronco_w = 6,
+  tronco_techo = 8
 };
 
 typedef struct {
@@ -109,16 +118,17 @@ static void soltar_cactus(void)
   obs[libre].viejo = 0;
 }
 
+/* rectangulo del cuerpo contra el tronco. un roce del dibujo no es choque. */
 static int choca(const obs_t *o)
 {
-  int ax0 = dx + 8;
-  int ay0 = y + 8;
-  int ax1 = dx + dw - 6;
-  int ay1 = y + dh - 2;
-  int bx0 = o->x + 2;
-  int by0 = suelo - o->h;
-  int bx1 = o->x + cactus_w - 2;
-  int by1 = suelo - 2;
+  int ax0 = dx + caja_x;
+  int ay0 = y + caja_y;
+  int ax1 = ax0 + caja_w;
+  int ay1 = ay0 + caja_h;
+  int bx0 = o->x + tronco_x;
+  int by0 = suelo - o->h + tronco_techo;
+  int bx1 = bx0 + tronco_w;
+  int by1 = suelo - 4;
   if (ax1 <= bx0 || bx1 <= ax0 || ay1 <= by0 || by1 <= ay0)
     return 0;
   return 1;
@@ -138,7 +148,7 @@ static void dino_iniciar(estado_t *e)
   scroll = 0;
   guardado = 0;
   panel = 0;
-  base = 0;
+    base = 0;
   dino_viejo = 0;
   nube_x[0] = 90;
   nube_y[0] = 36;
@@ -188,7 +198,7 @@ static void dino_actualizar(estado_t *e)
   for (i = 0; i < n_obs; i++) {
     if (!obs[i].activo)
       continue;
-    obs[i].x -= vel;
+          obs[i].x -= vel;
     if (obs[i].x + cactus_w < 0)
       obs[i].activo = 0;
   }
@@ -238,7 +248,7 @@ static void dibujar_suelo(void)
 
 static void borrar(int x, int y0, int w, int h)
 {
-  dibujo_rect(x, y0, w, h, color_cielo);
+    dibujo_rect(x, y0, w, h, color_cielo);
 }
 
 static void dibujar_dino(void)
