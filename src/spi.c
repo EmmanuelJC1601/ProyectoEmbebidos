@@ -11,9 +11,6 @@
 static pthread_mutex_t bus;
 static int lista;
 
-/* bitacora clase 9: mutex con herencia de prioridad.
- * si el hilo del juego (prioridad normal) tiene el bus y el adc (fifo 40)
- * lo necesita, el juego hereda la prioridad y suelta el bus antes. */
 int spi_iniciar(void)
 {
   pthread_mutexattr_t attr;
@@ -81,9 +78,6 @@ int spi_preparar(int fd, uint32_t hz)
   return 0;
 }
 
-/* la tft escribe sin leer. si rx es null el fifo del controlador se queda
- * con basura y la muestra siguiente del mcp3008 sale en cero. por eso aqui
- * siempre hay buffer de lectura. el llamador ya tiene el mutex del bus. */
 int spi_transferir(int fd, const uint8_t *tx, uint8_t *rx, size_t n, uint32_t hz)
 {
   static uint8_t descarte[tam_bloque];

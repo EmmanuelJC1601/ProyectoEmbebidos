@@ -160,8 +160,7 @@ int dibujo_texto(int x, int y, const char *texto, uint16_t color, int escala)
     }
     cx += (glifo_ancho + 1) * escala;
   }
-  /* una sola zona para toda la frase. un rect por pixel llenaria la lista
-   * y obligaria a mandar la pantalla entera. */
+
   if (cx > x)
     dibujo_marcar(x, y, cx - x, alto);
   return cx - x;
@@ -174,8 +173,7 @@ uint16_t dibujo_leer(int x, int y)
   return fb[(size_t)y * (size_t)ancho_px + (size_t)x];
 }
 
-/* junta dos rectangulos si el resultado sigue siendo un sprite.
- * la franja del suelo no se mezcla con un cactus: el area se pasa del tope. */
+
 static int se_juntan(const zona_t *a, const zona_t *b)
 {
   int x0 = a->x < b->x ? a->x : b->x;

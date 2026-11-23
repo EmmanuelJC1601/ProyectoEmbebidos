@@ -51,8 +51,6 @@ static const uint8_t gamma_negativa[] = {
 static const uint8_t ajuste[] = { 0x40, 0x8a, 0x00, 0x00, 0x29, 0x19, 0xa5, 0x33 };
 static const uint8_t funcion[] = { 0x80, 0x02, 0x3b };
 
-/* dc, reset y luz. el valor 1 es activo. la luz no es pwm: un overlay
- * de pwm cambiaria el sistema, y el pin 18 solo enciende o apaga el led. */
 static int nivel(unsigned pin, int valor)
 {
   enum gpiod_line_value v = valor ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE;
@@ -182,9 +180,6 @@ static int ventana(int x, int y, int w, int h)
   return comando(cmd_mem);
 }
 
-/* el llamador ya tiene el mutex del spi. no se suelta entre trozos:
- * si el adc mete un spi_setup a 1 mhz en medio, el cuadro de la tft
- * hereda ese reloj y el fps cae. */
 static int mandar_rect(int x, int y, int w, int h)
 {
   const uint16_t *fb = dibujo_buffer();
@@ -367,8 +362,7 @@ int pantalla_volcar(void)
   n = dibujo_zonas(zonas, zonas_max);
   if (n <= 0)
     return 0;
-  /* un solo tramo con el reloj de la tft. el adc espera a que termine
-   * y corre en el hueco de 33 ms, no entre trozos de 4 kib. */
+
   if (spi_tomar() != 0)
     return -1;
   dc_ahora = -1;
