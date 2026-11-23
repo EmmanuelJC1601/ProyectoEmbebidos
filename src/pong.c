@@ -150,6 +150,8 @@ static int golpea(int py, int ny)
   return ny + bola > py && ny < py + paleta_h;
 }
 
+/* p1 saca con b1 y p2 con b2, desde el centro de su paleta.
+ * los dos botones a la vez vuelven al menu. b2 solo ya no sale. */
 static void pong_actualizar(estado_t *e)
 {
   unsigned b1 = atomic_load(&e->pulsos[idx_b1]);
@@ -165,17 +167,24 @@ static void pong_actualizar(estado_t *e)
     visto2 = b2;
     listo1 = 1;
     listo2 = 1;
-    return;
-  }
-  if (pulso_nuevo(b2, &visto2, &listo2)) {
     juego_cambiar(e, juego_menu());
     return;
   }
   if (espera) {
+    int suelta;
     poner_saque(py1, py2);
-    if (!pulso_nuevo(b1, &visto1, &listo1))
+    if (servidor == saca_izq)
+      suelta = pulso_nuevo(b1, &visto1, &listo1);
+    else
+      suelta = pulso_nuevo(b2, &visto2, &listo2);
+    if (!suelta)
       return;
     espera = 0;
+  } else {
+    visto1 = b1;
+    visto2 = b2;
+    listo1 = 1;
+    listo2 = 1;
   }
   ny = by + vy;
   if (ny < campo_y) {
@@ -265,11 +274,12 @@ static void pong_dibujar(estado_t *e)
   }
   if (espera) {
     if (!aviso) {
-      dibujo_texto(96, 40, servidor == saca_der ? "P2 SACA   B2 MENU" : "P1 SACA   B2 MENU", color_blanco, 2);
+      dibujo_texto(70, 40, servidor == saca_der ? "P2 SACA CON B2" : "P1 SACA CON B1", color_blanco, 2);
+      dibujo_texto(150, 64, "AMBOS MENU", color_blanco, 2);
       aviso = 1;
     }
   } else if (aviso) {
-    dibujo_rect(90, 38, 320, 20, color_pong);
+    dibujo_rect(60, 38, 370, 50, color_pong);
     reparar_red(38, 22);
     aviso = 0;
   }
