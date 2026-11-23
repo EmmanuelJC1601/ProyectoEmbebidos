@@ -10,7 +10,7 @@ all: $(BUILD)/arcade
 
 $(BUILD)/arcade: $(addprefix src/,$(addsuffix .c,$(HW))) | $(BUILD)
 	@ver=$$(pkg-config --modversion libgpiod 2>/dev/null || true); \
-	echo "$$ver" | grep -q '^1\.' || { echo "hace falta libgpiod 1.x (bookworm trae 1.6.3), hay [$$ver]"; exit 1; }
+	echo "$$ver" | grep -q '^2\.' || { echo "hace falta libgpiod 2.x (trixie). hay [$$ver]"; exit 1; }
 	$(CC) $(CFLAGS) -o $@ $(addprefix src/,$(addsuffix .c,$(HW))) $(LDFLAGS) $(shell pkg-config --libs libgpiod)
 
 $(BUILD):

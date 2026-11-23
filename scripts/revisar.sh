@@ -20,8 +20,8 @@ fi
 echo "== libgpiod =="
 if ver=$(pkg-config --modversion libgpiod 2>/dev/null); then
   case "$ver" in
-    1.*) ok "libgpiod $ver" ;;
-    *) mal "libgpiod $ver (hace falta la 1.x, bookworm trae 1.6.3)" ;;
+    2.*) ok "libgpiod $ver" ;;
+    *) mal "libgpiod $ver (hace falta la 2.x, trixie la trae)" ;;
   esac
 else
   mal "pkg-config no ve libgpiod"
@@ -43,11 +43,11 @@ if [ -e /dev/spidev0.1 ]; then
   ls -l /dev/spidev0.1
   ok "/dev/spidev0.1 (tft, ce1)"
 else
-  mal "/dev/spidev0.1: con dtparam=spi=on el kernel crea los dos. no edites config.txt sin revisarlo"
+  mal "/dev/spidev0.1: con dtparam=spi=on el kernel crea los dos."
 fi
 if [ -e /dev/i2c-1 ]; then
   ls -l /dev/i2c-1
-  echo "[aviso] /dev/i2c-1 sigue ahi. el juego ya no lo usa. desconecta la lcd."
+  echo "[aviso] /dev/i2c-1 sigue ahi. el juego ya no lo usa."
 fi
 echo "== grupos =="
 usuario="${ARCADE_USUARIO:-chema}"
@@ -65,5 +65,5 @@ if [ "$falla" -ne 0 ]; then
   echo "hay faltantes."
   exit 1
 fi
-echo "la placa tiene lo que el binario abre. no se cambio ningun archivo del sistema."
+echo "la placa tiene lo necesario para compilar y ejecutar el juego."
 exit 0

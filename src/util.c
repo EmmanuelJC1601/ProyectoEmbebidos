@@ -32,10 +32,14 @@ void dormir_ms(unsigned ms)
 void dormir_hasta(int64_t plazo_ns)
 {
   struct timespec ts;
+  int rc;
   ts.tv_sec = (time_t)(plazo_ns / ns_por_s);
   ts.tv_nsec = (long)(plazo_ns % ns_por_s);
-  if (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL) != 0 && errno != EINTR)
-    log_errno("clock_nanosleep");
+  /* clock_nanosleep devuelve el error y no toca errno.
+   * si se imprime strerror(errno) al parar, sale "success" y no es una falla. */
+  rc = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL);
+  if (rc != 0 && rc != EINTR)
+    log_error("clock_nanosleep: %s", strerror(rc));
 }
 
 int iniciar_hilo(pthread_t *hilo, int prio, void *(*fn)(void *), void *arg)
